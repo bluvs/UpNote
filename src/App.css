@@ -1,22 +1,37 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+
+/* Basic fallback for Cascadia Mono if not installed locally */
+@font-face {
+  font-family: 'Cascadia Mono';
+  src: local('Cascadia Mono'), local('CascadiaMono-Regular');
+  font-weight: 400;
+}
+
+@font-face {
+  font-family: 'Cascadia Mono';
+  src: local('Cascadia Mono Semibold'), local('CascadiaMono-SemiBold');
+  font-weight: 600;
+}
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   body {
-    @apply bg-neo-bg text-black font-sans font-bold;
+    @apply bg-zinc-50 text-black font-sans font-semibold;
   }
 }
 
 @layer components {
   .neo-btn {
-    @apply border-2 border-black bg-neo-yellow px-4 py-2 shadow-neo transition-all active:translate-x-1 active:translate-y-1 active:shadow-neo-hover hover:bg-neo-pink;
+    @apply border-2 border-black bg-white px-4 py-2 shadow-neo transition-all active:translate-x-[2px] active:translate-y-[2px] active:shadow-neo-active hover:bg-black hover:text-white;
   }
   .neo-panel {
     @apply border-2 border-black bg-white shadow-neo;
   }
-  .neo-input {
-    @apply border-2 border-black px-3 py-2 outline-none focus:bg-neo-yellow transition-colors;
+  .neo-list-item {
+    @apply border-2 border-transparent transition-all hover:bg-black hover:text-white hover:border-black active:translate-x-[2px] active:translate-y-[2px] active:shadow-none;
   }
 }
 
@@ -30,4 +45,10 @@
   float: left;
   height: 0;
   pointer-events: none;
+}
+.tiptap-editor code {
+  @apply font-mono font-semibold;
+}
+.tiptap-editor pre {
+  @apply font-mono font-semibold bg-zinc-100 p-2 border-2 border-black;
 }

@@ -6,7 +6,8 @@ import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import DOMPurify from "dompurify";
 import TurndownService from "turndown";
-import { Folder, FileText, File as FileIcon, ChevronRight, ChevronDown, Save } from "lucide-react";
+import { marked } from "marked";
+import { Folder, FileText, File as FileIcon, ChevronRight, ChevronDown, Save, Bold, Italic, Heading1, Heading2, List, ListOrdered } from "lucide-react";
 import "./App.css";
 
 interface FileEntry {
@@ -115,10 +116,9 @@ function App() {
       setActiveFile(entry);
 
       if (entry.name.endsWith(".md")) {
-          // Sanitize raw text before passing to tiptap if treating as HTML,
-          // though tiptap handles markdown. We'll set content and sanitize on output.
-          // For simplicity, we just set it.
-          const clean = DOMPurify.sanitize(content);
+          // Parse markdown to HTML first
+          const parsedHtml = await marked.parse(content);
+          const clean = DOMPurify.sanitize(parsedHtml as string);
           setFileContent(clean);
           editor?.commands.setContent(clean);
       } else {
@@ -183,24 +183,24 @@ function App() {
 
 
   return (
-    <div className="flex h-screen bg-neo-bg text-black font-sans font-bold overflow-hidden">
+    <div className="flex h-screen bg-zinc-50 text-black font-sans font-semibold overflow-hidden">
       {/* Sidebar */}
-      <div className="w-64 flex flex-col border-r-4 border-black bg-white z-10">
-        <div className="p-4 border-b-4 border-black bg-neo-yellow flex justify-between items-center">
-          <h1 className="text-xl uppercase tracking-wider">UpNote</h1>
+      <div className="w-64 flex flex-col border-r-2 border-black bg-white z-10">
+        <div className="p-4 border-b-2 border-black flex justify-between items-center">
+          <h1 className="text-xl uppercase tracking-wider font-bold">UpNote</h1>
         </div>
 
-        <div className="p-2 border-b-4 border-black bg-neo-pink flex flex-col gap-2">
+        <div className="p-4 border-b-2 border-black flex flex-col gap-3">
             {!workspace ? (
-              <button className="neo-btn bg-white" onClick={selectWorkspace}>
+              <button className="neo-btn" onClick={selectWorkspace}>
                 Open Workspace
               </button>
             ) : (
                 <>
-                <button className="neo-btn bg-white text-xs" onClick={selectWorkspace}>
+                <button className="neo-btn text-sm" onClick={selectWorkspace}>
                   Change Workspace
                 </button>
-                <button className="neo-btn bg-neo-blue text-xs" onClick={createNewFile}>
+                <button className="neo-btn text-sm" onClick={createNewFile}>
                   + New File
                 </button>
                 </>
@@ -214,22 +214,22 @@ function App() {
                  data={flatFileList}
                  itemContent={(_, { entry, depth }) => (
                    <div
-                     className={`flex items-center p-1 cursor-pointer hover:bg-neo-yellow border-2 border-transparent hover:border-black hover:shadow-neo transition-all mb-1 ${activeFile?.path === entry.path ? 'bg-neo-blue border-black shadow-neo' : ''}`}
-                     style={{ paddingLeft: `${depth * 1.5 + 0.25}rem` }}
+                     className={`neo-list-item flex items-center p-2 mb-1 cursor-pointer ${activeFile?.path === entry.path ? 'bg-black text-white border-black' : ''}`}
+                     style={{ paddingLeft: `${depth * 1.5 + 0.5}rem` }}
                      onClick={() => entry.is_dir ? handleToggleDir(entry) : openFile(entry)}
                    >
                      {entry.is_dir ? (
                          <>
-                           {entry.isOpen ? <ChevronDown size={16} className="mr-1"/> : <ChevronRight size={16} className="mr-1"/>}
-                           <Folder size={16} className="mr-2 text-neo-pink" fill="currentColor"/>
+                           {entry.isOpen ? <ChevronDown size={16} className="mr-2"/> : <ChevronRight size={16} className="mr-2"/>}
+                           <Folder size={16} className="mr-2" fill="currentColor"/>
                          </>
                      ) : (
                          <>
-                           <span className="w-4 mr-1"></span>
-                           {entry.name.endsWith('.md') ? <FileIcon size={16} className="mr-2 text-neo-green"/> : <FileText size={16} className="mr-2 text-gray-600"/>}
+                           <span className="w-5 mr-1"></span>
+                           {entry.name.endsWith('.md') ? <FileIcon size={16} className="mr-2"/> : <FileText size={16} className="mr-2"/>}
                          </>
                      )}
-                     <span className="truncate text-sm">{entry.name}</span>
+                     <span className="truncate text-sm font-semibold">{entry.name}</span>
                    </div>
                  )}
                />
@@ -241,21 +241,33 @@ function App() {
       <div className="flex-1 flex flex-col">
         {activeFile ? (
           <>
-            <div className="p-4 border-b-4 border-black bg-neo-blue flex justify-between items-center z-10 shadow-neo">
-              <h2 className="text-lg">{activeFile.name}</h2>
+            <div className="p-4 border-b-2 border-black bg-white flex justify-between items-center z-10">
+              <h2 className="text-lg font-bold">{activeFile.name}</h2>
               <button className="neo-btn flex items-center gap-2" onClick={saveActiveFile}>
                 <Save size={18} /> Save
               </button>
             </div>
-            <div className="flex-1 overflow-auto p-8 bg-neo-bg">
-                <div className="neo-panel max-w-4xl mx-auto h-full flex flex-col p-4 bg-white">
+            <div className="flex-1 overflow-auto p-8 bg-zinc-50">
+                <div className="neo-panel max-w-4xl mx-auto h-full flex flex-col p-6 bg-white">
                     {activeFile.name.endsWith('.md') ? (
-                        <div className="prose max-w-none flex-1 overflow-auto focus:outline-none tiptap-editor">
-                           <EditorContent editor={editor} className="h-full outline-none" />
+                        <div className="flex-1 flex flex-col h-full">
+                           <div className="flex items-center gap-2 mb-4 p-2 border-b-2 border-black bg-zinc-100">
+                               <button className="p-1 hover:bg-black hover:text-white border-2 border-transparent hover:border-black transition-colors" onClick={() => editor?.chain().focus().toggleBold().run()}><Bold size={16}/></button>
+                               <button className="p-1 hover:bg-black hover:text-white border-2 border-transparent hover:border-black transition-colors" onClick={() => editor?.chain().focus().toggleItalic().run()}><Italic size={16}/></button>
+                               <span className="w-px h-4 bg-black mx-1"></span>
+                               <button className="p-1 hover:bg-black hover:text-white border-2 border-transparent hover:border-black transition-colors" onClick={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()}><Heading1 size={16}/></button>
+                               <button className="p-1 hover:bg-black hover:text-white border-2 border-transparent hover:border-black transition-colors" onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}><Heading2 size={16}/></button>
+                               <span className="w-px h-4 bg-black mx-1"></span>
+                               <button className="p-1 hover:bg-black hover:text-white border-2 border-transparent hover:border-black transition-colors" onClick={() => editor?.chain().focus().toggleBulletList().run()}><List size={16}/></button>
+                               <button className="p-1 hover:bg-black hover:text-white border-2 border-transparent hover:border-black transition-colors" onClick={() => editor?.chain().focus().toggleOrderedList().run()}><ListOrdered size={16}/></button>
+                           </div>
+                           <div className="prose max-w-none flex-1 overflow-auto focus:outline-none tiptap-editor">
+                               <EditorContent editor={editor} className="h-full outline-none font-sans" />
+                           </div>
                         </div>
                     ) : (
                         <textarea
-                            className="w-full h-full resize-none outline-none font-mono text-sm p-2"
+                            className="w-full h-full resize-none outline-none font-mono text-base p-2"
                             value={fileContent}
                             onChange={(e) => setFileContent(e.target.value)}
                             placeholder="Type here..."
@@ -266,9 +278,9 @@ function App() {
           </>
         ) : (
           <div className="flex-1 flex items-center justify-center">
-            <div className="text-center neo-panel p-12 bg-white">
-                <h2 className="text-3xl mb-4 bg-neo-yellow inline-block px-4 py-2 border-2 border-black shadow-neo">UpNote</h2>
-                <p className="text-xl">Select a file to start editing.</p>
+            <div className="text-center flex flex-col items-center">
+                <h2 className="text-4xl mb-6 font-bold uppercase tracking-widest border-2 border-black px-6 py-3 bg-white shadow-neo">UpNote</h2>
+                <p className="text-lg text-zinc-600 font-semibold">Select a file to start editing.</p>
             </div>
           </div>
         )}
