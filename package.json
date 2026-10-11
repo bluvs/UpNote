@@ -22,7 +22,6 @@
     "marked": "^18.1.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "react-virtuoso": "^4.18.16",
     "turndown": "^7.2.4"
   },
   "devDependencies": {

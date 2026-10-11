@@ -1,290 +1,229 @@
-import { useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { useState, useEffect, useCallback } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { Virtuoso } from "react-virtuoso";
+import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import DOMPurify from "dompurify";
 import TurndownService from "turndown";
 import { marked } from "marked";
-import { Folder, FileText, File as FileIcon, ChevronRight, ChevronDown, Save, Bold, Italic, Heading1, Heading2, List, ListOrdered } from "lucide-react";
+import { Save, FolderOpen, FilePlus, Settings, Bold, Italic, Heading1, Heading2, List, ListOrdered, X } from "lucide-react";
 import "./App.css";
 
-interface FileEntry {
-  name: string;
-  path: string;
-  is_dir: boolean;
-  children?: FileEntry[];
-  isOpen?: boolean;
-}
-
 function App() {
-  const [workspace, setWorkspace] = useState<string | null>(null);
-  const [files, setFiles] = useState<FileEntry[]>([]);
-  const [activeFile, setActiveFile] = useState<FileEntry | null>(null);
-  const [fileContent, setFileContent] = useState<string>("");
+  const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
+  const [editorFont, setEditorFont] = useState<string>("font-sans");
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   // Tiptap Editor for .md
   const editor = useEditor({
     extensions: [StarterKit],
     content: "",
-    onUpdate: ({ editor }) => {
-      setFileContent(editor.getHTML());
-    },
+    autofocus: true,
   });
 
-  const selectWorkspace = async () => {
-    const selected = await open({
-      directory: true,
-      multiple: false,
-    });
-    if (selected && !Array.isArray(selected)) {
-      setWorkspace(selected as string);
-      loadFiles(selected as string, "");
+  useEffect(() => {
+    const savedFont = localStorage.getItem("upnote-font");
+    if (savedFont) {
+      setEditorFont(savedFont);
     }
+  }, []);
+
+  const changeFont = (fontClass: string) => {
+    setEditorFont(fontClass);
+    localStorage.setItem("upnote-font", fontClass);
   };
 
-  const loadFiles = async (workspacePath: string, relativePath: string = "") => {
+  const handleNewFile = () => {
+    setActiveFilePath(null);
+    editor?.commands.setContent("");
+    editor?.commands.focus();
+  };
+
+  const handleOpenFile = async () => {
     try {
-      const entries: FileEntry[] = await invoke("list_directory", {
-        workspacePath,
-        relativePath,
+      const selectedPath = await open({
+        multiple: false,
+        filters: [{ name: 'Markdown', extensions: ['md', 'txt'] }]
       });
-      setFiles(entries);
-    } catch (error) {
-      console.error("Failed to load directory:", error);
-    }
-  };
 
-  const flattenFiles = (entries: FileEntry[], depth = 0): { entry: FileEntry, depth: number }[] => {
-      let flat: { entry: FileEntry, depth: number }[] = [];
-      for (const entry of entries) {
-          flat.push({ entry, depth });
-          if (entry.isOpen && entry.children) {
-              flat = flat.concat(flattenFiles(entry.children, depth + 1));
-          }
-      }
-      return flat;
-  };
+      if (selectedPath && !Array.isArray(selectedPath)) {
+        let content: string | null = await readTextFile(selectedPath);
+        setActiveFilePath(selectedPath);
 
-  const flatFileList = flattenFiles(files);
-
-  const loadDirectoryContents = async (path: string) => {
-       if (!workspace) return [];
-       try {
-          return await invoke<FileEntry[]>("list_directory", {
-            workspacePath: workspace,
-            relativePath: path,
-          });
-       } catch(e) {
-           console.error(e);
-           return [];
-       }
-  };
-
-  const handleToggleDir = async (clickedEntry: FileEntry) => {
-    if (!workspace) return;
-
-    const recursivelyToggle = async (entries: FileEntry[]): Promise<FileEntry[]> => {
-      let result = [];
-      for(let entry of entries) {
-        if(entry.path === clickedEntry.path) {
-          let newChildren = entry.children;
-          if(!entry.isOpen && !entry.children) {
-              newChildren = await loadDirectoryContents(entry.path);
-          }
-          result.push({ ...entry, isOpen: !entry.isOpen, children: newChildren });
-        } else if(entry.children) {
-           result.push({ ...entry, children: await recursivelyToggle(entry.children) })
+        if (selectedPath.endsWith(".md")) {
+            let parsedHtml: string | null = await marked.parse(content);
+            let clean: string | null = DOMPurify.sanitize(parsedHtml as string);
+            editor?.commands.setContent(clean);
+            // Free memory explicitly
+            parsedHtml = null;
+            clean = null;
         } else {
-           result.push(entry);
+            // For txt, we can just set it directly, Tiptap will treat it as plain text paragraphs
+            editor?.commands.setContent(content);
         }
-      }
-      return result;
-    }
-
-    setFiles(await recursivelyToggle(files));
-  };
-
-  const openFile = async (entry: FileEntry) => {
-    if (!workspace) return;
-    try {
-      const content: string = await invoke("read_file", {
-        workspacePath: workspace,
-        relativePath: entry.path,
-      });
-      setActiveFile(entry);
-
-      if (entry.name.endsWith(".md")) {
-          // Parse markdown to HTML first
-          const parsedHtml = await marked.parse(content);
-          const clean = DOMPurify.sanitize(parsedHtml as string);
-          setFileContent(clean);
-          editor?.commands.setContent(clean);
-      } else {
-          setFileContent(content);
+        // Free memory explicitly
+        content = null;
+        editor?.commands.focus();
       }
     } catch (error) {
-      console.error("Failed to read file:", error);
+      console.error("Failed to open file:", error);
+      alert("Failed to open file.");
     }
   };
 
-  const saveActiveFile = async () => {
-    if (!workspace || !activeFile) return;
-
+  const handleSaveFile = useCallback(async () => {
     try {
-      let contentToSave = fileContent;
-      if (activeFile.name.endsWith(".md")) {
-        const turndownService = new TurndownService();
-        contentToSave = turndownService.turndown(editor?.getHTML() || "");
+      let pathToSave = activeFilePath;
+
+      if (!pathToSave) {
+        const selectedPath = await save({
+          filters: [{ name: 'Markdown', extensions: ['md', 'txt'] }]
+        });
+        if (!selectedPath) return; // User cancelled
+        pathToSave = selectedPath;
       }
 
-      await invoke("write_file", {
-        workspacePath: workspace,
-        relativePath: activeFile.path,
-        content: contentToSave,
-      });
-      alert("Saved!");
+      let contentToSave: string | null = "";
+      if (pathToSave.endsWith(".md")) {
+        const turndownService = new TurndownService();
+        let editorHtml: string | null = editor?.getHTML() || "";
+        contentToSave = turndownService.turndown(editorHtml);
+        editorHtml = null; // free html memory
+      } else {
+        contentToSave = editor?.getText() || "";
+      }
+
+      await writeTextFile(pathToSave, contentToSave);
+      setActiveFilePath(pathToSave);
+
+      // Free string memory explicitly
+      contentToSave = null;
+
     } catch (error) {
       console.error("Failed to save file:", error);
-      alert("Failed to save file");
+      alert("Failed to save file.");
     }
-  };
+  }, [activeFilePath, editor]);
 
-  const createNewFile = async () => {
-      if(!workspace) return;
-      const path = await save({
-         defaultPath: workspace,
-         filters: [{ name: 'Text', extensions: ['txt', 'md'] }]
-      });
-
-      if(path) {
-          // Since save dialog gives absolute path, and write_file expects workspace + relative,
-          // for new files created outside workspace we could either reject or change workspace.
-          // The robust way is to write using an absolute write command if outside, but for simplicity
-          // let's adjust the workspace to the directory of the new file.
-          const lastSlashIndex = path.lastIndexOf('/');
-          const backslashIndex = path.lastIndexOf('\\');
-          const sepIndex = Math.max(lastSlashIndex, backslashIndex);
-          const newWorkspace = path.substring(0, sepIndex);
-          const newFileName = path.substring(sepIndex + 1);
-
-           setWorkspace(newWorkspace);
-           // Create the file at new location
-           await invoke("write_file", {
-                workspacePath: newWorkspace,
-                relativePath: newFileName,
-                content: "",
-           });
-           await loadFiles(newWorkspace, "");
-           openFile({ name: newFileName, path: newFileName, is_dir: false });
+  // Global Keyboard Shortcut for Save
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        handleSaveFile();
       }
-  };
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleSaveFile]);
 
+  const getFileName = (path: string | null) => {
+      if (!path) return "Untitled";
+      const sep = path.includes('\\') ? '\\' : '/';
+      return path.split(sep).pop() || "Untitled";
+  };
 
   return (
-    <div className="flex h-screen bg-zinc-50 text-black font-sans font-semibold overflow-hidden">
-      {/* Sidebar */}
-      <div className="w-64 flex flex-col border-r-2 border-black bg-white z-10">
-        <div className="p-4 border-b-2 border-black flex justify-between items-center">
-          <h1 className="text-xl uppercase tracking-wider font-bold">UpNote</h1>
+    <div className="flex flex-col h-screen bg-zinc-50 text-black font-sans font-semibold overflow-hidden">
+      {/* Top Toolbar */}
+      <div className="flex items-center justify-between p-2 border-b-2 border-black bg-white z-10 shrink-0 shadow-neo">
+        <div className="flex items-center gap-4">
+            <h1 className="text-xl uppercase tracking-widest font-bold border-r-2 border-black pr-4">UpNote</h1>
+            <button className="neo-btn flex items-center gap-2 text-sm" onClick={handleNewFile}>
+                <FilePlus size={16} /> New
+            </button>
+            <button className="neo-btn flex items-center gap-2 text-sm" onClick={handleOpenFile}>
+                <FolderOpen size={16} /> Open
+            </button>
+            <button className="neo-btn flex items-center gap-2 text-sm" onClick={handleSaveFile}>
+                <Save size={16} /> Save
+            </button>
         </div>
-
-        <div className="p-4 border-b-2 border-black flex flex-col gap-3">
-            {!workspace ? (
-              <button className="neo-btn" onClick={selectWorkspace}>
-                Open Workspace
-              </button>
-            ) : (
-                <>
-                <button className="neo-btn text-sm" onClick={selectWorkspace}>
-                  Change Workspace
-                </button>
-                <button className="neo-btn text-sm" onClick={createNewFile}>
-                  + New File
-                </button>
-                </>
-            )}
-        </div>
-
-        <div className="flex-1 overflow-hidden p-2">
-           {workspace && (
-               <Virtuoso
-                 style={{ height: '100%' }}
-                 data={flatFileList}
-                 itemContent={(_, { entry, depth }) => (
-                   <div
-                     className={`neo-list-item flex items-center p-2 mb-1 cursor-pointer ${activeFile?.path === entry.path ? 'bg-black text-white border-black' : ''}`}
-                     style={{ paddingLeft: `${depth * 1.5 + 0.5}rem` }}
-                     onClick={() => entry.is_dir ? handleToggleDir(entry) : openFile(entry)}
-                   >
-                     {entry.is_dir ? (
-                         <>
-                           {entry.isOpen ? <ChevronDown size={16} className="mr-2"/> : <ChevronRight size={16} className="mr-2"/>}
-                           <Folder size={16} className="mr-2" fill="currentColor"/>
-                         </>
-                     ) : (
-                         <>
-                           <span className="w-5 mr-1"></span>
-                           {entry.name.endsWith('.md') ? <FileIcon size={16} className="mr-2"/> : <FileText size={16} className="mr-2"/>}
-                         </>
-                     )}
-                     <span className="truncate text-sm font-semibold">{entry.name}</span>
-                   </div>
-                 )}
-               />
-           )}
+        <div className="flex items-center gap-4">
+             <span className="text-sm font-bold bg-zinc-100 px-3 py-1 border-2 border-black">{getFileName(activeFilePath)}</span>
+             <button className="neo-btn flex items-center gap-2 text-sm" onClick={() => setIsSettingsOpen(true)}>
+                <Settings size={16} /> Settings
+             </button>
         </div>
       </div>
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col">
-        {activeFile ? (
-          <>
-            <div className="p-4 border-b-2 border-black bg-white flex justify-between items-center z-10">
-              <h2 className="text-lg font-bold">{activeFile.name}</h2>
-              <button className="neo-btn flex items-center gap-2" onClick={saveActiveFile}>
-                <Save size={18} /> Save
-              </button>
-            </div>
-            <div className="flex-1 overflow-auto p-8 bg-zinc-50">
-                <div className="neo-panel max-w-4xl mx-auto h-full flex flex-col p-6 bg-white">
-                    {activeFile.name.endsWith('.md') ? (
-                        <div className="flex-1 flex flex-col h-full">
-                           <div className="flex items-center gap-2 mb-4 p-2 border-b-2 border-black bg-zinc-100">
-                               <button className="p-1 hover:bg-black hover:text-white border-2 border-transparent hover:border-black transition-colors" onClick={() => editor?.chain().focus().toggleBold().run()}><Bold size={16}/></button>
-                               <button className="p-1 hover:bg-black hover:text-white border-2 border-transparent hover:border-black transition-colors" onClick={() => editor?.chain().focus().toggleItalic().run()}><Italic size={16}/></button>
-                               <span className="w-px h-4 bg-black mx-1"></span>
-                               <button className="p-1 hover:bg-black hover:text-white border-2 border-transparent hover:border-black transition-colors" onClick={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()}><Heading1 size={16}/></button>
-                               <button className="p-1 hover:bg-black hover:text-white border-2 border-transparent hover:border-black transition-colors" onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}><Heading2 size={16}/></button>
-                               <span className="w-px h-4 bg-black mx-1"></span>
-                               <button className="p-1 hover:bg-black hover:text-white border-2 border-transparent hover:border-black transition-colors" onClick={() => editor?.chain().focus().toggleBulletList().run()}><List size={16}/></button>
-                               <button className="p-1 hover:bg-black hover:text-white border-2 border-transparent hover:border-black transition-colors" onClick={() => editor?.chain().focus().toggleOrderedList().run()}><ListOrdered size={16}/></button>
-                           </div>
-                           <div className="prose max-w-none flex-1 overflow-auto focus:outline-none tiptap-editor">
-                               <EditorContent editor={editor} className="h-full outline-none font-sans" />
-                           </div>
-                        </div>
-                    ) : (
-                        <textarea
-                            className="w-full h-full resize-none outline-none font-mono text-base p-2"
-                            value={fileContent}
-                            onChange={(e) => setFileContent(e.target.value)}
-                            placeholder="Type here..."
-                        />
-                    )}
-                </div>
-            </div>
-          </>
-        ) : (
-          <div className="flex-1 flex items-center justify-center">
-            <div className="text-center flex flex-col items-center">
-                <h2 className="text-4xl mb-6 font-bold uppercase tracking-widest border-2 border-black px-6 py-3 bg-white shadow-neo">UpNote</h2>
-                <p className="text-lg text-zinc-600 font-semibold">Select a file to start editing.</p>
-            </div>
+      {/* Editor Formatting Toolbar (Markdown) */}
+      <div className="flex items-center justify-center p-2 border-b-2 border-black bg-zinc-100 shrink-0">
+           <div className="flex items-center gap-2 bg-white border-2 border-black p-1 shadow-neo">
+               <button className="p-1 hover:bg-black hover:text-white border-2 border-transparent hover:border-black transition-colors" onClick={() => editor?.chain().focus().toggleBold().run()}><Bold size={16}/></button>
+               <button className="p-1 hover:bg-black hover:text-white border-2 border-transparent hover:border-black transition-colors" onClick={() => editor?.chain().focus().toggleItalic().run()}><Italic size={16}/></button>
+               <span className="w-px h-4 bg-black mx-1"></span>
+               <button className="p-1 hover:bg-black hover:text-white border-2 border-transparent hover:border-black transition-colors" onClick={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()}><Heading1 size={16}/></button>
+               <button className="p-1 hover:bg-black hover:text-white border-2 border-transparent hover:border-black transition-colors" onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}><Heading2 size={16}/></button>
+               <span className="w-px h-4 bg-black mx-1"></span>
+               <button className="p-1 hover:bg-black hover:text-white border-2 border-transparent hover:border-black transition-colors" onClick={() => editor?.chain().focus().toggleBulletList().run()}><List size={16}/></button>
+               <button className="p-1 hover:bg-black hover:text-white border-2 border-transparent hover:border-black transition-colors" onClick={() => editor?.chain().focus().toggleOrderedList().run()}><ListOrdered size={16}/></button>
+           </div>
+      </div>
+
+      {/* Main Content (Editor) */}
+      <div className="flex-1 overflow-auto p-4 md:p-8 bg-zinc-50 flex justify-center">
+          <div className="neo-panel w-full max-w-4xl h-full flex flex-col p-6 bg-white relative">
+             <div className="prose max-w-none flex-1 overflow-auto focus:outline-none tiptap-editor h-full">
+                 <EditorContent editor={editor} className={`h-full outline-none ${editorFont}`} />
+             </div>
           </div>
-        )}
       </div>
+
+      {/* Settings Modal */}
+      {isSettingsOpen && (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+              <div className="neo-panel bg-white max-w-md w-full p-6 relative">
+                  <button
+                      className="absolute top-2 right-2 p-1 hover:bg-black hover:text-white border-2 border-transparent hover:border-black transition-colors"
+                      onClick={() => setIsSettingsOpen(false)}
+                  >
+                      <X size={20} />
+                  </button>
+                  <h2 className="text-2xl font-bold border-b-2 border-black pb-2 mb-4">Settings</h2>
+
+                  <div className="mb-6">
+                      <h3 className="text-lg font-bold mb-2">Editor Font</h3>
+                      <div className="flex flex-col gap-2">
+                          <label className="flex items-center gap-2 cursor-pointer p-2 hover:bg-zinc-100 border-2 border-transparent hover:border-black transition-colors">
+                              <input
+                                  type="radio"
+                                  name="font"
+                                  checked={editorFont === 'font-sans'}
+                                  onChange={() => changeFont('font-sans')}
+                                  className="accent-black w-4 h-4"
+                              />
+                              <span className="font-sans">Sans-serif (Inter)</span>
+                          </label>
+                          <label className="flex items-center gap-2 cursor-pointer p-2 hover:bg-zinc-100 border-2 border-transparent hover:border-black transition-colors">
+                              <input
+                                  type="radio"
+                                  name="font"
+                                  checked={editorFont === 'font-serif'}
+                                  onChange={() => changeFont('font-serif')}
+                                  className="accent-black w-4 h-4"
+                              />
+                              <span className="font-serif">Serif</span>
+                          </label>
+                          <label className="flex items-center gap-2 cursor-pointer p-2 hover:bg-zinc-100 border-2 border-transparent hover:border-black transition-colors">
+                              <input
+                                  type="radio"
+                                  name="font"
+                                  checked={editorFont === 'font-mono'}
+                                  onChange={() => changeFont('font-mono')}
+                                  className="accent-black w-4 h-4"
+                              />
+                              <span className="font-mono">Monospace (Cascadia)</span>
+                          </label>
+                      </div>
+                  </div>
+
+                  <div className="flex justify-end">
+                      <button className="neo-btn" onClick={() => setIsSettingsOpen(false)}>Done</button>
+                  </div>
+              </div>
+          </div>
+      )}
     </div>
   );
 }
