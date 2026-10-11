@@ -1,0 +1,33 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-neo-bg text-black font-sans font-bold;
+  }
+}
+
+@layer components {
+  .neo-btn {
+    @apply border-2 border-black bg-neo-yellow px-4 py-2 shadow-neo transition-all active:translate-x-1 active:translate-y-1 active:shadow-neo-hover hover:bg-neo-pink;
+  }
+  .neo-panel {
+    @apply border-2 border-black bg-white shadow-neo;
+  }
+  .neo-input {
+    @apply border-2 border-black px-3 py-2 outline-none focus:bg-neo-yellow transition-colors;
+  }
+}
+
+.tiptap-editor .ProseMirror {
+  outline: none;
+  height: 100%;
+}
+.tiptap-editor p.is-editor-empty:first-child::before {
+  color: #adb5bd;
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
