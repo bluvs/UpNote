@@ -1,229 +1,252 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
-import { useEditor, EditorContent } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
-import DOMPurify from "dompurify";
+import { PanelGroup, Panel, PanelResizeHandle } from "react-resizable-panels";
 import TurndownService from "turndown";
-import { marked } from "marked";
-import { Save, FolderOpen, FilePlus, Settings, Bold, Italic, Heading1, Heading2, List, ListOrdered, X } from "lucide-react";
+import {
+    FilePlus, X, Columns, File, FolderOpen
+} from "lucide-react";
 import "./App.css";
 
+import EditorTab from "./EditorTab";
+
+export interface TabData {
+  id: string;
+  path: string | null;
+  name: string;
+  content: string;
+  isDirty: boolean;
+  words: number;
+  chars: number;
+}
+
 function App() {
-  const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
-  const [editorFont, setEditorFont] = useState<string>("font-sans");
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [tabs, setTabs] = useState<TabData[]>([{ id: '1', path: null, name: 'Untitled', content: '', isDirty: false, words: 0, chars: 0 }]);
+  const [activeTabId, setActiveTabId] = useState<string>('1');
+  const [splitView, setSplitView] = useState<boolean>(false);
+  const [secondaryTabId, setSecondaryTabId] = useState<string | null>(null);
 
-  // Tiptap Editor for .md
-  const editor = useEditor({
-    extensions: [StarterKit],
-    content: "",
-    autofocus: true,
-  });
+  // We handle the debounced save and state update together
+  const handleTabChangeAndSave = useCallback(async (id: string, content: string, words: number, chars: number) => {
+      // 1. Update global state efficiently
+      setTabs(prev => {
+          const newTabs = [...prev];
+          const tabIndex = newTabs.findIndex(t => t.id === id);
+          if (tabIndex > -1) {
+              newTabs[tabIndex] = { ...newTabs[tabIndex], content, words, chars, isDirty: true };
+          }
+          return newTabs;
+      });
 
-  useEffect(() => {
-    const savedFont = localStorage.getItem("upnote-font");
-    if (savedFont) {
-      setEditorFont(savedFont);
-    }
-  }, []);
+      // 2. Perform the auto-save logic if the file already has a path
+      const tabToSave = tabs.find(t => t.id === id);
+      if (tabToSave && tabToSave.path) {
+          try {
+             const turndownService = new TurndownService();
+             let textToSave: string | null = turndownService.turndown(content);
+             await writeTextFile(tabToSave.path, textToSave);
+             textToSave = null;
 
-  const changeFont = (fontClass: string) => {
-    setEditorFont(fontClass);
-    localStorage.setItem("upnote-font", fontClass);
-  };
+             // Mark as clean
+             setTabs(prev => prev.map(t => t.id === id ? { ...t, isDirty: false } : t));
+          } catch(e) {
+             console.error("Auto-save failed", e);
+          }
+      }
+  }, [tabs]);
 
   const handleNewFile = () => {
-    setActiveFilePath(null);
-    editor?.commands.setContent("");
-    editor?.commands.focus();
+    const newId = Date.now().toString();
+    setTabs(prev => [...prev, { id: newId, path: null, name: 'Untitled', content: '', isDirty: false, words: 0, chars: 0 }]);
+    setActiveTabId(newId);
   };
 
   const handleOpenFile = async () => {
-    try {
-      const selectedPath = await open({
-        multiple: false,
-        filters: [{ name: 'Markdown', extensions: ['md', 'txt'] }]
-      });
+      try {
+          const selectedPath = await open({
+              multiple: false,
+              filters: [{ name: 'Markdown', extensions: ['md', 'txt'] }]
+          });
 
-      if (selectedPath && !Array.isArray(selectedPath)) {
-        let content: string | null = await readTextFile(selectedPath);
-        setActiveFilePath(selectedPath);
+          if (selectedPath && !Array.isArray(selectedPath)) {
+              let content: string | null = await readTextFile(selectedPath);
+              const newId = Date.now().toString();
+              const sep = selectedPath.includes('\\') ? '\\' : '/';
+              const name = selectedPath.split(sep).pop() || "Untitled";
 
-        if (selectedPath.endsWith(".md")) {
-            let parsedHtml: string | null = await marked.parse(content);
-            let clean: string | null = DOMPurify.sanitize(parsedHtml as string);
-            editor?.commands.setContent(clean);
-            // Free memory explicitly
-            parsedHtml = null;
-            clean = null;
-        } else {
-            // For txt, we can just set it directly, Tiptap will treat it as plain text paragraphs
-            editor?.commands.setContent(content);
-        }
-        // Free memory explicitly
-        content = null;
-        editor?.commands.focus();
+              setTabs(prev => [...prev, { id: newId, path: selectedPath, name, content: content as string, isDirty: false, words: 0, chars: 0 }]);
+              setActiveTabId(newId);
+              content = null; // free string memory
+          }
+      } catch (err) {
+          console.error("Failed to open file", err);
       }
-    } catch (error) {
-      console.error("Failed to open file:", error);
-      alert("Failed to open file.");
-    }
   };
 
-  const handleSaveFile = useCallback(async () => {
-    try {
-      let pathToSave = activeFilePath;
-
-      if (!pathToSave) {
-        const selectedPath = await save({
-          filters: [{ name: 'Markdown', extensions: ['md', 'txt'] }]
-        });
-        if (!selectedPath) return; // User cancelled
-        pathToSave = selectedPath;
-      }
-
-      let contentToSave: string | null = "";
-      if (pathToSave.endsWith(".md")) {
-        const turndownService = new TurndownService();
-        let editorHtml: string | null = editor?.getHTML() || "";
-        contentToSave = turndownService.turndown(editorHtml);
-        editorHtml = null; // free html memory
-      } else {
-        contentToSave = editor?.getText() || "";
-      }
-
-      await writeTextFile(pathToSave, contentToSave);
-      setActiveFilePath(pathToSave);
-
-      // Free string memory explicitly
-      contentToSave = null;
-
-    } catch (error) {
-      console.error("Failed to save file:", error);
-      alert("Failed to save file.");
-    }
-  }, [activeFilePath, editor]);
-
-  // Global Keyboard Shortcut for Save
+  // Global Keyboard Shortcut for Save & Close
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
+    const handleKeyDown = async (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         e.preventDefault();
-        handleSaveFile();
+        const activeTab = tabs.find(t => t.id === activeTabId);
+        if (activeTab && activeTab.isDirty) {
+             let pathToSave = activeTab.path;
+             if (!pathToSave) {
+                 const selectedPath = await save({
+                     filters: [{ name: 'Markdown', extensions: ['md', 'txt'] }]
+                 });
+                 if (!selectedPath) return;
+                 pathToSave = selectedPath;
+             }
+             const turndownService = new TurndownService();
+             let textToSave: string | null = turndownService.turndown(activeTab.content);
+             await writeTextFile(pathToSave, textToSave);
+             textToSave = null;
+
+             setTabs(prev => {
+                const newTabs = [...prev];
+                const tabIndex = newTabs.findIndex(t => t.id === activeTabId);
+                if (tabIndex > -1) {
+                    newTabs[tabIndex] = { ...newTabs[tabIndex], path: pathToSave, name: pathToSave.split(/[/\\]/).pop() || "Untitled", isDirty: false };
+                }
+                return newTabs;
+            });
+        }
+      }
+
+      if ((e.ctrlKey || e.metaKey) && e.key === 'w') {
+        e.preventDefault();
+        handleCloseTab(activeTabId);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleSaveFile]);
+  }, [activeTabId, tabs]);
 
-  const getFileName = (path: string | null) => {
-      if (!path) return "Untitled";
-      const sep = path.includes('\\') ? '\\' : '/';
-      return path.split(sep).pop() || "Untitled";
+  const handleCloseTab = (id: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setTabs(prev => {
+        const newTabs = prev.filter(t => t.id !== id);
+        if (newTabs.length === 0) {
+            return [{ id: Date.now().toString(), path: null, name: 'Untitled', content: '', isDirty: false, words: 0, chars: 0 }];
+        }
+        if (activeTabId === id) {
+            setActiveTabId(newTabs[newTabs.length - 1].id);
+        }
+        return newTabs;
+    });
+    if (secondaryTabId === id) {
+        setSecondaryTabId(null);
+        setSplitView(false);
+    }
+  };
+
+  const toggleSplitView = () => {
+    if (splitView) {
+        setSplitView(false);
+        setSecondaryTabId(null);
+    } else {
+        if (tabs.length > 1) {
+            const otherTab = tabs.find(t => t.id !== activeTabId);
+            if (otherTab) {
+                setSecondaryTabId(otherTab.id);
+                setSplitView(true);
+            }
+        }
+    }
   };
 
   return (
-    <div className="flex flex-col h-screen bg-zinc-50 text-black font-sans font-semibold overflow-hidden">
-      {/* Top Toolbar */}
-      <div className="flex items-center justify-between p-2 border-b-2 border-black bg-white z-10 shrink-0 shadow-neo">
-        <div className="flex items-center gap-4">
-            <h1 className="text-xl uppercase tracking-widest font-bold border-r-2 border-black pr-4">UpNote</h1>
-            <button className="neo-btn flex items-center gap-2 text-sm" onClick={handleNewFile}>
-                <FilePlus size={16} /> New
-            </button>
-            <button className="neo-btn flex items-center gap-2 text-sm" onClick={handleOpenFile}>
-                <FolderOpen size={16} /> Open
-            </button>
-            <button className="neo-btn flex items-center gap-2 text-sm" onClick={handleSaveFile}>
-                <Save size={16} /> Save
-            </button>
+    <div className="flex flex-col h-screen bg-background text-foreground overflow-hidden">
+      {/* Top Bar */}
+      <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-accent z-10 shrink-0 h-12">
+        <div className="flex items-center gap-1 overflow-x-auto custom-scrollbar flex-1">
+            {tabs.map(tab => (
+                <div
+                    key={tab.id}
+                    onClick={() => setActiveTabId(tab.id)}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-t-md border-b-2 cursor-pointer max-w-[200px] group transition-colors ${activeTabId === tab.id ? 'bg-background border-foreground text-foreground' : 'bg-transparent border-transparent text-muted-foreground hover:bg-muted/50 hover:text-foreground'}`}
+                >
+                    <File size={14} className="shrink-0" />
+                    <span className="truncate text-xs font-medium">{tab.name}{tab.isDirty ? ' *' : ''}</span>
+                    <button
+                        onClick={(e) => handleCloseTab(tab.id, e)}
+                        className={`p-0.5 rounded-sm opacity-0 group-hover:opacity-100 hover:bg-slate-200 transition-opacity ${activeTabId === tab.id ? 'opacity-100' : ''}`}
+                    >
+                        <X size={12} />
+                    </button>
+                </div>
+            ))}
         </div>
-        <div className="flex items-center gap-4">
-             <span className="text-sm font-bold bg-zinc-100 px-3 py-1 border-2 border-black">{getFileName(activeFilePath)}</span>
-             <button className="neo-btn flex items-center gap-2 text-sm" onClick={() => setIsSettingsOpen(true)}>
-                <Settings size={16} /> Settings
+        <div className="flex items-center gap-2 pl-4 shrink-0">
+             <button className="btn-ghost" onClick={handleNewFile} title="New File">
+                <FilePlus size={16} />
+             </button>
+             <button className="btn-ghost" onClick={handleOpenFile} title="Open File">
+                <FolderOpen size={16} />
+             </button>
+             <button className="btn-ghost" onClick={toggleSplitView} title="Split View" disabled={tabs.length < 2}>
+                <Columns size={16} className={tabs.length < 2 ? 'opacity-50' : ''} />
              </button>
         </div>
       </div>
 
-      {/* Editor Formatting Toolbar (Markdown) */}
-      <div className="flex items-center justify-center p-2 border-b-2 border-black bg-zinc-100 shrink-0">
-           <div className="flex items-center gap-2 bg-white border-2 border-black p-1 shadow-neo">
-               <button className="p-1 hover:bg-black hover:text-white border-2 border-transparent hover:border-black transition-colors" onClick={() => editor?.chain().focus().toggleBold().run()}><Bold size={16}/></button>
-               <button className="p-1 hover:bg-black hover:text-white border-2 border-transparent hover:border-black transition-colors" onClick={() => editor?.chain().focus().toggleItalic().run()}><Italic size={16}/></button>
-               <span className="w-px h-4 bg-black mx-1"></span>
-               <button className="p-1 hover:bg-black hover:text-white border-2 border-transparent hover:border-black transition-colors" onClick={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()}><Heading1 size={16}/></button>
-               <button className="p-1 hover:bg-black hover:text-white border-2 border-transparent hover:border-black transition-colors" onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}><Heading2 size={16}/></button>
-               <span className="w-px h-4 bg-black mx-1"></span>
-               <button className="p-1 hover:bg-black hover:text-white border-2 border-transparent hover:border-black transition-colors" onClick={() => editor?.chain().focus().toggleBulletList().run()}><List size={16}/></button>
-               <button className="p-1 hover:bg-black hover:text-white border-2 border-transparent hover:border-black transition-colors" onClick={() => editor?.chain().focus().toggleOrderedList().run()}><ListOrdered size={16}/></button>
-           </div>
+      {/* Main Workspace */}
+      <div className="flex-1 overflow-hidden flex relative">
+          <PanelGroup direction="horizontal">
+            {/* Primary Editor */}
+            <Panel defaultSize={splitView ? 50 : 100} minSize={30}>
+                {tabs.find(t => t.id === activeTabId) && (
+                    <EditorTab
+                        key={activeTabId}
+                        tab={tabs.find(t => t.id === activeTabId)!}
+                        isActive={true}
+                        onChangeAndSave={handleTabChangeAndSave}
+                    />
+                )}
+            </Panel>
+
+            {/* Secondary Editor (Split View) */}
+            {splitView && secondaryTabId && (
+                <>
+                <PanelResizeHandle className="w-1 bg-border hover:bg-blue-400 transition-colors cursor-col-resize" />
+                <Panel defaultSize={50} minSize={30}>
+                    <div className="h-full border-l border-border bg-muted/20 relative">
+                        {/* Selector for secondary pane */}
+                        <div className="absolute top-0 right-0 p-2 z-10 flex gap-2">
+                             <select
+                                className="input-base text-xs py-1"
+                                value={secondaryTabId}
+                                onChange={(e) => setSecondaryTabId(e.target.value)}
+                             >
+                                 {tabs.filter(t => t.id !== activeTabId).map(t => (
+                                     <option key={t.id} value={t.id}>{t.name}</option>
+                                 ))}
+                             </select>
+                             <button className="btn-ghost bg-background border border-border shadow-sm" onClick={() => setSplitView(false)}>
+                                 <X size={14} />
+                             </button>
+                        </div>
+                        {tabs.find(t => t.id === secondaryTabId) && (
+                            <EditorTab
+                                key={secondaryTabId}
+                                tab={tabs.find(t => t.id === secondaryTabId)!}
+                                isActive={false}
+                                onChangeAndSave={handleTabChangeAndSave}
+                            />
+                        )}
+                    </div>
+                </Panel>
+                </>
+            )}
+          </PanelGroup>
       </div>
 
-      {/* Main Content (Editor) */}
-      <div className="flex-1 overflow-auto p-4 md:p-8 bg-zinc-50 flex justify-center">
-          <div className="neo-panel w-full max-w-4xl h-full flex flex-col p-6 bg-white relative">
-             <div className="prose max-w-none flex-1 overflow-auto focus:outline-none tiptap-editor h-full">
-                 <EditorContent editor={editor} className={`h-full outline-none ${editorFont}`} />
-             </div>
-          </div>
+      {/* Status Bar Placeholder */}
+      <div className="h-6 border-t border-border bg-accent flex items-center justify-between px-4 text-xs text-muted-foreground shrink-0">
+          <div>Words: {tabs.find(t => t.id === activeTabId)?.words || 0} | Characters: {tabs.find(t => t.id === activeTabId)?.chars || 0}</div>
+          <div>UTF-8</div>
       </div>
-
-      {/* Settings Modal */}
-      {isSettingsOpen && (
-          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-              <div className="neo-panel bg-white max-w-md w-full p-6 relative">
-                  <button
-                      className="absolute top-2 right-2 p-1 hover:bg-black hover:text-white border-2 border-transparent hover:border-black transition-colors"
-                      onClick={() => setIsSettingsOpen(false)}
-                  >
-                      <X size={20} />
-                  </button>
-                  <h2 className="text-2xl font-bold border-b-2 border-black pb-2 mb-4">Settings</h2>
-
-                  <div className="mb-6">
-                      <h3 className="text-lg font-bold mb-2">Editor Font</h3>
-                      <div className="flex flex-col gap-2">
-                          <label className="flex items-center gap-2 cursor-pointer p-2 hover:bg-zinc-100 border-2 border-transparent hover:border-black transition-colors">
-                              <input
-                                  type="radio"
-                                  name="font"
-                                  checked={editorFont === 'font-sans'}
-                                  onChange={() => changeFont('font-sans')}
-                                  className="accent-black w-4 h-4"
-                              />
-                              <span className="font-sans">Sans-serif (Inter)</span>
-                          </label>
-                          <label className="flex items-center gap-2 cursor-pointer p-2 hover:bg-zinc-100 border-2 border-transparent hover:border-black transition-colors">
-                              <input
-                                  type="radio"
-                                  name="font"
-                                  checked={editorFont === 'font-serif'}
-                                  onChange={() => changeFont('font-serif')}
-                                  className="accent-black w-4 h-4"
-                              />
-                              <span className="font-serif">Serif</span>
-                          </label>
-                          <label className="flex items-center gap-2 cursor-pointer p-2 hover:bg-zinc-100 border-2 border-transparent hover:border-black transition-colors">
-                              <input
-                                  type="radio"
-                                  name="font"
-                                  checked={editorFont === 'font-mono'}
-                                  onChange={() => changeFont('font-mono')}
-                                  className="accent-black w-4 h-4"
-                              />
-                              <span className="font-mono">Monospace (Cascadia)</span>
-                          </label>
-                      </div>
-                  </div>
-
-                  <div className="flex justify-end">
-                      <button className="neo-btn" onClick={() => setIsSettingsOpen(false)}>Done</button>
-                  </div>
-              </div>
-          </div>
-      )}
     </div>
   );
 }

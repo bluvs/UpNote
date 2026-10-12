@@ -10,9 +10,13 @@ export default {
         sans: ['Inter', 'sans-serif'],
         mono: ['"Cascadia Mono"', 'monospace'],
       },
-      boxShadow: {
-        'neo': '4px 4px 0px 0px rgba(0,0,0,1)',
-        'neo-active': '2px 2px 0px 0px rgba(0,0,0,1)',
+      colors: {
+        border: 'var(--border)',
+        background: 'var(--background)',
+        foreground: 'var(--foreground)',
+        muted: 'var(--muted)',
+        'muted-foreground': 'var(--muted-foreground)',
+        accent: 'var(--accent)',
       }
     },
   },

@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 /* Basic fallback for Cascadia Mono if not installed locally */
 @font-face {
@@ -7,37 +7,37 @@
   font-weight: 400;
 }
 
-@font-face {
-  font-family: 'Cascadia Mono';
-  src: local('Cascadia Mono Semibold'), local('CascadiaMono-SemiBold');
-  font-weight: 600;
-}
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
+  :root {
+    --background: #ffffff;
+    --foreground: #0f172a;
+    --muted: #f1f5f9;
+    --muted-foreground: #64748b;
+    --border: #e2e8f0;
+    --accent: #f8fafc;
+  }
+
   body {
-    @apply bg-zinc-50 text-black font-sans font-semibold;
+    @apply bg-background text-foreground font-sans antialiased text-sm m-0 p-0;
   }
 }
 
 @layer components {
-  .neo-btn {
-    @apply border-2 border-black bg-white px-4 py-2 shadow-neo transition-all active:translate-x-[2px] active:translate-y-[2px] active:shadow-neo-active hover:bg-black hover:text-white;
+  .btn-ghost {
+    @apply hover:bg-muted p-1.5 rounded transition-colors text-muted-foreground hover:text-foreground cursor-pointer flex items-center justify-center border border-transparent;
   }
-  .neo-panel {
-    @apply border-2 border-black bg-white shadow-neo;
-  }
-  .neo-list-item {
-    @apply border-2 border-transparent transition-all hover:bg-black hover:text-white hover:border-black active:translate-x-[2px] active:translate-y-[2px] active:shadow-none;
+  .input-base {
+    @apply border border-border rounded px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-slate-300;
   }
 }
 
 .tiptap-editor .ProseMirror {
   outline: none;
-  height: 100%;
+  min-height: 100%;
 }
 .tiptap-editor p.is-editor-empty:first-child::before {
   color: #adb5bd;
@@ -47,8 +47,26 @@
   pointer-events: none;
 }
 .tiptap-editor code {
-  @apply font-mono font-semibold;
+  @apply font-mono bg-muted px-1 py-0.5 rounded text-sm text-slate-800;
 }
 .tiptap-editor pre {
-  @apply font-mono font-semibold bg-zinc-100 p-2 border-2 border-black;
+  @apply font-mono bg-slate-900 text-slate-50 p-4 rounded-md overflow-auto my-4;
+}
+.tiptap-editor pre code {
+  @apply bg-transparent p-0 text-inherit;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  height: 4px;
+  width: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--muted-foreground);
 }
