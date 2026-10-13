@@ -1,0 +1,14 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "save_image",
+  "description": "Allow save_image_to_assets IPC command",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    {
+      "identifier": "core:default",
+      "allow": [{ "cmd": "save_image_to_assets" }]
+    }
+  ]
+}
