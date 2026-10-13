@@ -1,9 +1,11 @@
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Minus, Square, X } from 'lucide-react';
 
-const appWindow = getCurrentWindow();
-
 export default function CustomTitlebar() {
+  const handleMinimize = () => getCurrentWindow().minimize();
+  const handleMaximize = () => getCurrentWindow().toggleMaximize();
+  const handleClose = () => getCurrentWindow().close();
+
   return (
     <div
       data-tauri-drag-region
@@ -18,19 +20,19 @@ export default function CustomTitlebar() {
       <div className="flex h-full">
         <div
           className="inline-flex justify-center items-center w-10 h-full hover:bg-accent hover:text-foreground cursor-pointer text-muted-foreground transition-colors"
-          onClick={() => appWindow.minimize()}
+          onClick={handleMinimize}
         >
           <Minus size={14} />
         </div>
         <div
           className="inline-flex justify-center items-center w-10 h-full hover:bg-accent hover:text-foreground cursor-pointer text-muted-foreground transition-colors"
-          onClick={() => appWindow.toggleMaximize()}
+          onClick={handleMaximize}
         >
           <Square size={12} />
         </div>
         <div
           className="inline-flex justify-center items-center w-10 h-full hover:bg-red-500 hover:text-white cursor-pointer text-muted-foreground transition-colors"
-          onClick={() => appWindow.close()}
+          onClick={handleClose}
         >
           <X size={14} />
         </div>
