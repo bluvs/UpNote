@@ -9,7 +9,6 @@ import {
 import "./App.css";
 
 import EditorTab from "./EditorTab";
-import CustomTitlebar from "./CustomTitlebar";
 
 export interface TabData {
   id: string;
@@ -159,7 +158,6 @@ function App() {
 
   return (
     <div className="flex flex-col h-screen bg-background text-foreground overflow-hidden">
-      <CustomTitlebar />
       {/* Top Bar */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-accent z-10 shrink-0 h-12">
         <div className="flex items-center gap-1 overflow-x-auto custom-scrollbar flex-1">
